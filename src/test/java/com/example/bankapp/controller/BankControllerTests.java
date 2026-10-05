@@ -16,6 +16,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.logout;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
@@ -144,5 +145,58 @@ class BankControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(view().name("transactions"))
                 .andExpect(content().string(containsString("Deposit")));
+    }
+
+    @Test
+    void negativeAmountsShowErrorAndMoveNoMoney() throws Exception {
+        Account sender = register();
+        Account recipient = register();
+        accountService.deposit(sender, new BigDecimal("100"));
+
+        mvc.perform(post("/deposit").with(user(sender.getUsername())).with(csrf()).param("amount", "-50"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("dashboard"))
+                .andExpect(content().string(containsString("Amount must be greater than zero")));
+        mvc.perform(post("/transfer").with(user(sender.getUsername())).with(csrf())
+                        .param("toUsername", recipient.getUsername()).param("amount", "-500"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Amount must be greater than zero")));
+
+        assertThat(balanceOf(sender)).isEqualByComparingTo("100");
+        assertThat(balanceOf(recipient)).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void postWithoutCsrfTokenIsRejected() throws Exception {
+        Account account = register();
+
+        mvc.perform(post("/deposit").with(user(account.getUsername())).param("amount", "100"))
+                .andExpect(status().isForbidden());
+
+        assertThat(balanceOf(account)).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void formsIncludeCsrfToken() throws Exception {
+        Account account = register();
+
+        mvc.perform(get("/dashboard").with(user(account.getUsername())))
+                .andExpect(content().string(containsString("name=\"_csrf\"")));
+        mvc.perform(get("/login"))
+                .andExpect(content().string(containsString("name=\"_csrf\"")));
+    }
+
+    @Test
+    void logoutEndsSessionAndReturnsToLogin() throws Exception {
+        mvc.perform(logout("/logout"))
+                .andExpect(unauthenticated())
+                .andExpect(redirectedUrl("/login?logout"));
+    }
+
+    @Test
+    void healthEndpointIsPublicAndUp() throws Exception {
+        mvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"status\":\"UP\"")));
     }
 }

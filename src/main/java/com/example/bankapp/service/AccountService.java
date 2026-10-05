@@ -12,6 +12,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -48,31 +49,35 @@ public class AccountService implements UserDetailsService {
     }
 
 
+    @Transactional
     public void deposit(Account account, BigDecimal amount) {
-        account.setBalance(account.getBalance().add(amount));
-        accountRepository.save(account);
+        requireValidAmount(amount);
+        Account locked = lockAccount(account.getId());
+        locked.setBalance(locked.getBalance().add(amount));
 
         Transaction transaction = new Transaction(
                 amount,
                 "Deposit",
                 LocalDateTime.now(),
-                account
+                locked
         );
         transactionRepository.save(transaction);
     }
 
+    @Transactional
     public void withdraw(Account account, BigDecimal amount) {
-        if (account.getBalance().compareTo(amount) < 0) {
+        requireValidAmount(amount);
+        Account locked = lockAccount(account.getId());
+        if (locked.getBalance().compareTo(amount) < 0) {
             throw new RuntimeException("Insufficient funds");
         }
-        account.setBalance(account.getBalance().subtract(amount));
-        accountRepository.save(account);
+        locked.setBalance(locked.getBalance().subtract(amount));
 
         Transaction transaction = new Transaction(
                 amount,
                 "Withdrawal",
                 LocalDateTime.now(),
-                account
+                locked
         );
         transactionRepository.save(transaction);
     }
@@ -100,38 +105,58 @@ public class AccountService implements UserDetailsService {
         return Arrays.asList(new SimpleGrantedAuthority("USER"));
     }
 
+    @Transactional
     public void transferAmount(Account fromAccount, String toUsername, BigDecimal amount) {
-        if (fromAccount.getBalance().compareTo(amount) < 0) {
+        requireValidAmount(amount);
+        Long fromId = fromAccount.getId();
+        Long toId = accountRepository.findIdByUsername(toUsername)
+                .orElseThrow(() -> new RuntimeException("Recipient account not found"));
+        if (fromId.equals(toId)) {
+            throw new IllegalArgumentException("Cannot transfer to your own account");
+        }
+
+        // Lock both rows in id order so two opposite transfers can't deadlock each other.
+        Account first = lockAccount(Math.min(fromId, toId));
+        Account second = lockAccount(Math.max(fromId, toId));
+        Account sender = fromId < toId ? first : second;
+        Account recipient = fromId < toId ? second : first;
+
+        if (sender.getBalance().compareTo(amount) < 0) {
             throw new RuntimeException("Insufficient funds");
         }
 
-        Account toAccount = accountRepository.findByUsername(toUsername)
-                .orElseThrow(() -> new RuntimeException("Recipient account not found"));
+        sender.setBalance(sender.getBalance().subtract(amount));
+        recipient.setBalance(recipient.getBalance().add(amount));
 
-        // Deduct from sender's account
-        fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
-        accountRepository.save(fromAccount);
-
-        // Add to recipient's account
-        toAccount.setBalance(toAccount.getBalance().add(amount));
-        accountRepository.save(toAccount);
-
-        // Create transaction records for both accounts
         Transaction debitTransaction = new Transaction(
                 amount,
-                "Transfer Out to " + toAccount.getUsername(),
+                "Transfer Out to " + recipient.getUsername(),
                 LocalDateTime.now(),
-                fromAccount
+                sender
         );
         transactionRepository.save(debitTransaction);
 
         Transaction creditTransaction = new Transaction(
                 amount,
-                "Transfer In from " + fromAccount.getUsername(),
+                "Transfer In from " + sender.getUsername(),
                 LocalDateTime.now(),
-                toAccount
+                recipient
         );
         transactionRepository.save(creditTransaction);
+    }
+
+    private Account lockAccount(Long id) {
+        return accountRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+    }
+
+    private static void requireValidAmount(BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            throw new IllegalArgumentException("Amount must be greater than zero");
+        }
+        if (amount.stripTrailingZeros().scale() > 2) {
+            throw new IllegalArgumentException("Amount cannot have more than 2 decimal places");
+        }
     }
 
 }

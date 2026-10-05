@@ -129,7 +129,7 @@
 
 <div class="container">
     <h2 class="text-center">Register a New Account</h2>
-    <form method="post" action="/register">
+    <form method="post" th:action="@{/register}">
         <div class="form-group">
             <label>Username:</label>
             <input type="text" class="form-control" name="username" required />
