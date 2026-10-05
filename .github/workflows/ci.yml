@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [DevOps]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build and test (MySQL via Testcontainers)
+        run: ./mvnw -B verify
