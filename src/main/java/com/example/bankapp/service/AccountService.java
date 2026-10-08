@@ -12,6 +12,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -100,17 +101,29 @@ public class AccountService implements UserDetailsService {
         return Arrays.asList(new SimpleGrantedAuthority("USER"));
     }
 
+    @Transactional
     public void transferAmount(Account fromAccount, String toUsername, BigDecimal amount) {
-        if (fromAccount.getBalance().compareTo(amount) < 0) {
+        String fromUsername = fromAccount.getUsername();
+
+        // Re-read and lock both rows (always in the same order, to avoid deadlocks) so concurrent
+        // transfers can't overwrite each other's balance updates.
+        Account sender;
+        Account toAccount;
+        if (fromUsername.compareTo(toUsername) <= 0) {
+            sender = lockAccount(fromUsername, "Account not found");
+            toAccount = lockAccount(toUsername, "Recipient account not found");
+        } else {
+            toAccount = lockAccount(toUsername, "Recipient account not found");
+            sender = lockAccount(fromUsername, "Account not found");
+        }
+
+        if (sender.getBalance().compareTo(amount) < 0) {
             throw new RuntimeException("Insufficient funds");
         }
 
-        Account toAccount = accountRepository.findByUsername(toUsername)
-                .orElseThrow(() -> new RuntimeException("Recipient account not found"));
-
         // Deduct from sender's account
-        fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
-        accountRepository.save(fromAccount);
+        sender.setBalance(sender.getBalance().subtract(amount));
+        accountRepository.save(sender);
 
         // Add to recipient's account
         toAccount.setBalance(toAccount.getBalance().add(amount));
@@ -121,17 +134,22 @@ public class AccountService implements UserDetailsService {
                 amount,
                 "Transfer Out to " + toAccount.getUsername(),
                 LocalDateTime.now(),
-                fromAccount
+                sender
         );
         transactionRepository.save(debitTransaction);
 
         Transaction creditTransaction = new Transaction(
                 amount,
-                "Transfer In from " + fromAccount.getUsername(),
+                "Transfer In from " + sender.getUsername(),
                 LocalDateTime.now(),
                 toAccount
         );
         transactionRepository.save(creditTransaction);
+    }
+
+    private Account lockAccount(String username, String notFoundMessage) {
+        return accountRepository.findByUsernameForUpdate(username)
+                .orElseThrow(() -> new RuntimeException(notFoundMessage));
     }
 
 }
