@@ -25,7 +25,7 @@
             z-index: 1000;
         }
 
-        .navbar-custom a {
+        .navbar-custom a, .navbar-custom button {
             color: #ffffff !important;
         }
 
@@ -92,7 +92,11 @@
     <ul class="navbar-nav ml-auto">
         <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
         <li class="nav-item"><a class="nav-link" href="/transactions">Transactions</a></li>
-        <li class="nav-item"><a class="nav-link" href="/logout">Logout</a></li>
+        <li class="nav-item">
+            <form method="post" th:action="@{/logout}" class="form-inline">
+                <button type="submit" class="btn btn-link nav-link">Logout</button>
+            </form>
+        </li>
     </ul>
 </nav>
 

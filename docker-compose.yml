@@ -4,7 +4,7 @@ services:
     image: mysql:latest
     container_name: mysql
     environment:
-      - MYSQL_ROOT_PASSWORD=Test@123
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
       - MYSQL_DATABASE=BankDB
     volumes:
       - bankapp-volume:/var/lib/mysql
@@ -23,7 +23,7 @@ services:
     environment:
       - SPRING_DATASOURCE_USERNAME=root
       - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/BankDB?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      - SPRING_DATASOURCE_PASSWORD=Test@123
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     ports:
       - "8080:8080"
     depends_on:
